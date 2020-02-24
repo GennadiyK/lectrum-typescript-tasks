@@ -5,7 +5,7 @@ enum Seporators {
 enum Symbols {
     Dollar = '$'
 } 
-type Default = {
+interface Options {
     symbol: Symbols,
     separator: Seporators,
     decimal: Seporators,
@@ -14,9 +14,25 @@ type Default = {
     precision: number,
     pattern: string,
     negativePattern: string
+    increment: number
+    groups: RegExp
+    useVedic?: boolean
 }
 
-const defaults: Default = {
+interface ICurrency {
+    intValue: number
+    groups: RegExp
+    value: string | number
+}
+
+const round = (v: number):number => Math.round(v)
+const pow = (p: number):number => Math.pow(10, p)
+const rounding = (value:number, increment:number):number => round(value / increment) * increment
+
+const groupRegex = /(\d)(?=(\d{3})+\b)/g
+const vedicRegex = /(\d)(?=(\d\d)+\d\b)/g
+
+const defaults:Options = {
     symbol: Symbols.Dollar,
     separator: Seporators.Comma,
     decimal: Seporators.Dot,
@@ -25,126 +41,90 @@ const defaults: Default = {
     precision: 2,
     pattern: '!#',
     negativePattern: '-!#',
+    increment: 0,
+    groups: groupRegex
 }
-
-const round = v => Math.round(v)
-const pow = p => Math.pow(10, p)
-const rounding = (value, increment) => round(value / increment) * increment
-
-const groupRegex = /(\d)(?=(\d{3})+\b)/g
-const vedicRegex = /(\d)(?=(\d\d)+\d\b)/g
 
 /**
  * Create a new instance of currency.js
  * @param {number|string|currency} value
  * @param {object} [opts]
  */
-function currency(value, opts) {
-    let that = this
 
-    if (!(that instanceof currency)) {
-        return new currency(value, opts)
-    }
+class Currency<V> {
+    public intValue = 0
+    public groups = groupRegex
+    public value: string | number | V = 0
+    private _settings = defaults
+    private _precision = 0
+    constructor (value: V, opts: Options) {
+        let that = this
+        this._settings = opts
 
-    let settings = Object.assign({}, defaults, opts),
-        precision = pow(settings.precision),
-        v = parse(value, settings)
-
-    that.intValue = v
-    that.value = v / precision
-
-    // Set default incremental value
-    settings.increment = settings.increment || 1 / precision
-
-    // Support vedic numbering systems
-    // see: https://en.wikipedia.org/wiki/Indian_numbering_system
-    if (settings.useVedic) {
-        settings.groups = vedicRegex
-    } else {
-        settings.groups = groupRegex
-    }
-
-    // Intended for internal usage only - subject to change
-    this._settings = settings
-    this._precision = precision
-}
-
-function parse(value, opts, useRounding = true) {
-    let v = 0,
-        { decimal, errorOnInvalid, precision: decimals } = opts,
-        precision = pow(decimals),
-        isNumber = typeof value === 'number'
-
-    if (isNumber || value instanceof currency) {
-        v = (isNumber ? value : value.value) * precision
-    } else if (typeof value === 'string') {
-        let regex = new RegExp('[^-\\d' + decimal + ']', 'g'),
-            decimalString = new RegExp('\\' + decimal, 'g')
-        v =
-            value
-                .replace(/\((.*)\)/, '-$1') // allow negative e.g. (1.99)
-                .replace(regex, '') // replace any non numeric values
-                .replace(decimalString, '.') * precision // convert any decimal values // scale number to integer value
-        v = v || 0
-    } else {
-        if (errorOnInvalid) {
-            throw Error('Invalid Input')
+        if (!(that instanceof Currency)) {
+            return new Currency<V>(value, opts)
         }
-        v = 0
+
+        let settings = Object.assign({}, defaults, opts),
+            precision = pow(settings.precision),
+            v = parse<V>(value, settings)
+
+        this.intValue = v
+        this.value = v / precision
+
+        // Set default incremental value
+        settings.increment = settings.increment || 1 / precision
+
+        // Support vedic numbering systems
+        // see: https://en.wikipedia.org/wiki/Indian_numbering_system
+        if (settings.useVedic) {
+            settings.groups = vedicRegex
+        } else {
+            settings.groups = groupRegex
+        }
+
+        // Intended for internal usage only - subject to change
+        this._settings = settings
+        this._precision = precision
     }
 
-    // Handle additional decimal for proper rounding.
-    v = v.toFixed(4)
-
-    return useRounding ? round(v) : v
-}
-
-currency.prototype = {
-    /**
-     * Adds values together.
-     * @param {number} number
-     * @returns {currency}
-     */
-    add(number) {
-        let { intValue, _settings, _precision } = this
-        return currency(
-            (intValue += parse(number, _settings)) / _precision,
-            _settings
-        )
-    },
+    add(number:number): Currency<number> {
+        var _a = this, intValue = _a.intValue, _settings = _a._settings, _precision = _a._precision;
+        return new Currency((intValue += parse<number>(number, _settings)) / _precision, _settings);
+    }
 
     /**
      * Subtracts value.
      * @param {number} number
      * @returns {currency}
      */
-    subtract(number) {
+    subtract(number:number): Currency<number> {
         let { intValue, _settings, _precision } = this
-        return currency(
-            (intValue -= parse(number, _settings)) / _precision,
+        return new Currency(
+            (intValue -= parse<number>(number, _settings)) / _precision,
             _settings
         )
-    },
+    }
 
     /**
      * Multiplies values.
      * @param {number} number
      * @returns {currency}
      */
-    multiply(number) {
+    multiply(number:number): Currency<number> {
         let { intValue, _settings } = this
-        return currency((intValue *= number) / pow(_settings.precision), _settings)
-    },
+        return new Currency((intValue *= number) / pow(_settings.precision), _settings)
+    }
 
     /**
      * Divides value.
      * @param {number} number
      * @returns {currency}
      */
-    divide(number) {
+    divide(number:number): Currency<number> {
         let { intValue, _settings } = this
-        return currency((intValue /= parse(number, _settings, false)), _settings)
-    },
+        return new Currency((intValue /= parse<number>(number, _settings, false)), _settings)
+    }
 
     /**
      * Takes the currency amount and distributes the values evenly. Any extra pennies
@@ -152,14 +132,14 @@ currency.prototype = {
      * @param {number} count
      * @returns {array}
      */
-    distribute(count) {
+    distribute(count:number): Array<Currency> {
         let { intValue, _precision, _settings } = this,
             distribution = [],
             split = Math[intValue >= 0 ? 'floor' : 'ceil'](intValue / count),
             pennies = Math.abs(intValue - split * count)
 
         for (; count !== 0; count--) {
-            let item = currency(split / _precision, _settings)
+            let item = new Currency(split / _precision, _settings)
 
             // Add any left over pennies
             pennies-- > 0 &&
@@ -172,7 +152,7 @@ currency.prototype = {
         }
 
         return distribution
-    },
+    }
 
     /**
      * Returns the dollar value.
@@ -180,7 +160,7 @@ currency.prototype = {
      */
     dollars() {
         return ~~this.value
-    },
+    }
 
     /**
      * Returns the cent value.
@@ -189,14 +169,14 @@ currency.prototype = {
     cents() {
         let { intValue, _precision } = this
         return ~~(intValue % _precision)
-    },
+    }
 
     /**
      * Formats the value as a string according to the formatting settings.
      * @param {boolean} useSymbol - format with currency symbol
      * @returns {string}
      */
-    format(useSymbol) {
+    format(useSymbol: boolean): string {
         let {
             pattern,
             negativePattern,
@@ -221,18 +201,18 @@ currency.prototype = {
                 cents ? decimal + cents : ''
                 }`
             )
-    },
+    }
 
     /**
      * Formats the value as a string according to the formatting settings.
      * @returns {string}
      */
-    toString() {
+    toString(): string {
         let { intValue, _precision, _settings } = this
         return rounding(intValue / _precision, _settings.increment).toFixed(
             _settings.precision
         )
-    },
+    }
 
     /**
      * Value for JSON serialization.
@@ -240,7 +220,42 @@ currency.prototype = {
      */
     toJSON() {
         return this.value
-    },
+    }
+}
+/**
+ * 
+ * @param value 
+ * @param opts 
+ * @param useRounding 
+ */
+function parse<V>(value:V, opts: Options, useRounding = true): number {
+    let v = 0,
+        { decimal, errorOnInvalid, precision: decimals } = opts,
+        precision = pow(decimals),
+        isNumber = typeof value === 'number'
+
+    if (isNumber || value instanceof Currency) {
+        v = (isNumber ? value : value.value) * precision
+    } else if (typeof value === 'string') {
+        let regex = new RegExp('[^-\\d' + decimal + ']', 'g'),
+            decimalString = new RegExp('\\' + decimal, 'g')
+        v =
+            value
+                .replace(/\((.*)\)/, '-$1') // allow negative e.g. (1.99)
+                .replace(regex, '') // replace any non numeric values
+                .replace(decimalString, '.') * precision // convert any decimal values // scale number to integer value
+        v = v || 0
+    } else {
+        if (errorOnInvalid) {
+            throw Error('Invalid Input')
+        }
+        v = 0
+    }
+
+    // Handle additional decimal for proper rounding.
+    v = parseInt(v.toFixed(4), 10)
+
+    return useRounding ? round(v) : v
 }
 
-export default currency
+export default Currency

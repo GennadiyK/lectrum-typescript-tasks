@@ -19,12 +19,6 @@ interface Options {
     useVedic?: boolean
 }
 
-interface ICurrency {
-    intValue: number
-    groups: RegExp
-    value: string | number
-}
-
 const round = (v: number):number => Math.round(v)
 const pow = (p: number):number => Math.pow(10, p)
 const rounding = (value:number, increment:number):number => round(value / increment) * increment
@@ -100,7 +94,7 @@ class Currency<V> {
      */
     subtract(number:number): Currency<number> {
         let { intValue, _settings, _precision } = this
-        return new Currency(
+        return new Currency<number>(
             (intValue -= parse<number>(number, _settings)) / _precision,
             _settings
         )
@@ -132,14 +126,14 @@ class Currency<V> {
      * @param {number} count
      * @returns {array}
      */
-    distribute(count:number): Array<Currency> {
+    distribute(count:number): Array<Currency<number>> {
         let { intValue, _precision, _settings } = this,
             distribution = [],
             split = Math[intValue >= 0 ? 'floor' : 'ceil'](intValue / count),
             pennies = Math.abs(intValue - split * count)
 
         for (; count !== 0; count--) {
-            let item = new Currency(split / _precision, _settings)
+            let item = new Currency<number>(split / _precision, _settings)
 
             // Add any left over pennies
             pennies-- > 0 &&
@@ -228,19 +222,19 @@ class Currency<V> {
  * @param opts 
  * @param useRounding 
  */
-function parse<V>(value:V, opts: Options, useRounding = true): number {
+function parse<V>(value: V, opts: Options, useRounding = true): number {
     let v = 0,
         { decimal, errorOnInvalid, precision: decimals } = opts,
-        precision = pow(decimals),
-        isNumber = typeof value === 'number'
+        precision = pow(decimals)
 
-    if (isNumber || value instanceof Currency) {
-        v = (isNumber ? value : value.value) * precision
+    if (typeof value === 'number') {
+        v = value * precision
+    } else if(value instanceof Currency){
+        v = value.value * precision
     } else if (typeof value === 'string') {
         let regex = new RegExp('[^-\\d' + decimal + ']', 'g'),
             decimalString = new RegExp('\\' + decimal, 'g')
-        v =
-            value
+        v = +value
                 .replace(/\((.*)\)/, '-$1') // allow negative e.g. (1.99)
                 .replace(regex, '') // replace any non numeric values
                 .replace(decimalString, '.') * precision // convert any decimal values // scale number to integer value

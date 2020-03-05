@@ -1,246 +1,108 @@
-enum Seporators {
-    Comma = ',',
-    Dot = '.'
-}
-enum Symbols {
-    Dollar = '$'
-} 
-type Default = {
-    symbol: Symbols,
-    separator: Seporators,
-    decimal: Seporators,
-    formatWithSymbol: boolean,
-    errorOnInvalid: boolean,
-    precision: number,
-    pattern: string,
-    negativePattern: string
+var emitter = {};
+
+interface IEvent {
+    type: string,
+    timeStamp: Date
 }
 
-const defaults: Default = {
-    symbol: Symbols.Dollar,
-    separator: Seporators.Comma,
-    decimal: Seporators.Dot,
-    formatWithSymbol: false,
-    errorOnInvalid: false,
-    precision: 2,
-    pattern: '!#',
-    negativePattern: '-!#',
+type EventsType = {
+    [key: string]: Array<Function>
 }
 
-const round = v => Math.round(v)
-const pow = p => Math.pow(10, p)
-const rounding = (value, increment) => round(value / increment) * increment
+interface IEmmiter {
+    events: EventsType
+    on: (type: string, handler: () => void)  => void
+    off: (type: string, handler: () => void) => void
+    trigger: (event: IEvent, args: []) => void
+    mixin: (obj: EventsType, arr: Array<string>) => void
+    _offAll: () => IEmmiter
+    _offByType: (type: string) => IEmmiter
+    _offByHandler: (type: string, handler: () => void) => IEmmiter
+    _dispatch: (event: IEvent, args: []) => void
+}
 
-const groupRegex = /(\d)(?=(\d{3})+\b)/g
-const vedicRegex = /(\d)(?=(\d\d)+\d\b)/g
+class Emitter implements IEmmiter {
+    events: EventsType
+  constructor () {
+    // var e = Object.create(emitter);
+    this.events = {};
+    // return e;
+  }
 
-/**
- * Create a new instance of currency.js
- * @param {number|string|currency} value
- * @param {object} [opts]
- */
-function currency(value, opts) {
-    let that = this
-
-    if (!(that instanceof currency)) {
-        return new currency(value, opts)
-    }
-
-    let settings = Object.assign({}, defaults, opts),
-        precision = pow(settings.precision),
-        v = parse(value, settings)
-
-    that.intValue = v
-    that.value = v / precision
-
-    // Set default incremental value
-    settings.increment = settings.increment || 1 / precision
-
-    // Support vedic numbering systems
-    // see: https://en.wikipedia.org/wiki/Indian_numbering_system
-    if (settings.useVedic) {
-        settings.groups = vedicRegex
+  public on = function (this:IEmmiter, type: string, handler: () => void) {
+    if (this.events.hasOwnProperty(type)) {
+      this.events[type].push(handler);
     } else {
-        settings.groups = groupRegex
+      this.events[type] = [handler];
     }
+    return this;
+  };
 
-    // Intended for internal usage only - subject to change
-    this._settings = settings
-    this._precision = precision
-}
-
-function parse(value, opts, useRounding = true) {
-    let v = 0,
-        { decimal, errorOnInvalid, precision: decimals } = opts,
-        precision = pow(decimals),
-        isNumber = typeof value === 'number'
-
-    if (isNumber || value instanceof currency) {
-        v = (isNumber ? value : value.value) * precision
-    } else if (typeof value === 'string') {
-        let regex = new RegExp('[^-\\d' + decimal + ']', 'g'),
-            decimalString = new RegExp('\\' + decimal, 'g')
-        v =
-            value
-                .replace(/\((.*)\)/, '-$1') // allow negative e.g. (1.99)
-                .replace(regex, '') // replace any non numeric values
-                .replace(decimalString, '.') * precision // convert any decimal values // scale number to integer value
-        v = v || 0
-    } else {
-        if (errorOnInvalid) {
-            throw Error('Invalid Input')
-        }
-        v = 0
+  public trigger = function(this: IEmmiter, event: IEvent, args: []) {
+    if (!(event instanceof EventCustom)) {
+      event = new EventCustom(event.type);
     }
+    return this._dispatch(event, args);
+  };
+ 
 
-    // Handle additional decimal for proper rounding.
-    v = v.toFixed(4)
+  public off = function(this: IEmmiter, type: string, handler: () => void) {
+    if (arguments.length === 0) {
+      return this._offAll();
+    }
+    if (handler === undefined) {
+      return this._offByType(type);
+    }
+    return this._offByHandler(type, handler);
+  };
 
-    return useRounding ? round(v) : v
+  public mixin = function(obj: EventsType, arr: Array<string>){
+    var emitter = new Emitter();
+    arr.map(function(name){
+      obj[name] = function(){
+        return emitter[name].apply(emitter, arguments);
+      };
+    });
+  };
+
+  private _offAll = function(this: IEmmiter): IEmmiter {
+    this.events = {};
+    return this;
+  };
+
+  private _offByType = function(this: IEmmiter, type: string): IEmmiter {
+    if (this.events.hasOwnProperty(type)) {
+      delete this.events[type];
+    }
+    return this;
+  };
+
+  private _offByHandler = function(this: IEmmiter, type: string, handler: () => void): IEmmiter {
+    if (!this.events.hasOwnProperty(type)) return;
+    var i = this.events[type].indexOf(handler);
+    if (i > -1) {
+      this.events[type].splice(i, 1);
+    }
+    return this;
+  };
+
+  private _dispatch = function(this: IEmmiter, event: IEvent, args: []) {
+    if (!this.events.hasOwnProperty(event.type)) return;
+    args = args || [];
+    args.unshift(event);
+  
+    var handlers = this.events[event.type] || [];
+    handlers.forEach(handler => handler.apply(null, args));
+    return this;
+  };
+
 }
 
-currency.prototype = {
-    /**
-     * Adds values together.
-     * @param {number} number
-     * @returns {currency}
-     */
-    add(number) {
-        let { intValue, _settings, _precision } = this
-        return currency(
-            (intValue += parse(number, _settings)) / _precision,
-            _settings
-        )
-    },
-
-    /**
-     * Subtracts value.
-     * @param {number} number
-     * @returns {currency}
-     */
-    subtract(number) {
-        let { intValue, _settings, _precision } = this
-        return currency(
-            (intValue -= parse(number, _settings)) / _precision,
-            _settings
-        )
-    },
-
-    /**
-     * Multiplies values.
-     * @param {number} number
-     * @returns {currency}
-     */
-    multiply(number) {
-        let { intValue, _settings } = this
-        return currency((intValue *= number) / pow(_settings.precision), _settings)
-    },
-
-    /**
-     * Divides value.
-     * @param {number} number
-     * @returns {currency}
-     */
-    divide(number) {
-        let { intValue, _settings } = this
-        return currency((intValue /= parse(number, _settings, false)), _settings)
-    },
-
-    /**
-     * Takes the currency amount and distributes the values evenly. Any extra pennies
-     * left over from the distribution will be stacked onto the first set of entries.
-     * @param {number} count
-     * @returns {array}
-     */
-    distribute(count) {
-        let { intValue, _precision, _settings } = this,
-            distribution = [],
-            split = Math[intValue >= 0 ? 'floor' : 'ceil'](intValue / count),
-            pennies = Math.abs(intValue - split * count)
-
-        for (; count !== 0; count--) {
-            let item = currency(split / _precision, _settings)
-
-            // Add any left over pennies
-            pennies-- > 0 &&
-                (item =
-                    intValue >= 0
-                        ? item.add(1 / _precision)
-                        : item.subtract(1 / _precision))
-
-            distribution.push(item)
-        }
-
-        return distribution
-    },
-
-    /**
-     * Returns the dollar value.
-     * @returns {number}
-     */
-    dollars() {
-        return ~~this.value
-    },
-
-    /**
-     * Returns the cent value.
-     * @returns {number}
-     */
-    cents() {
-        let { intValue, _precision } = this
-        return ~~(intValue % _precision)
-    },
-
-    /**
-     * Formats the value as a string according to the formatting settings.
-     * @param {boolean} useSymbol - format with currency symbol
-     * @returns {string}
-     */
-    format(useSymbol) {
-        let {
-            pattern,
-            negativePattern,
-            formatWithSymbol,
-            symbol,
-            separator,
-            decimal,
-            groups,
-        } = this._settings,
-            values = (this + '').replace(/^-/, '').split('.'),
-            dollars = values[0],
-            cents = values[1]
-
-        // set symbol formatting
-        typeof useSymbol === 'undefined' && (useSymbol = formatWithSymbol)
-
-        return (this.value >= 0 ? pattern : negativePattern)
-            .replace('!', useSymbol ? symbol : '')
-            .replace(
-                '#',
-                `${dollars.replace(groups, '$1' + separator)}${
-                cents ? decimal + cents : ''
-                }`
-            )
-    },
-
-    /**
-     * Formats the value as a string according to the formatting settings.
-     * @returns {string}
-     */
-    toString() {
-        let { intValue, _precision, _settings } = this
-        return rounding(intValue / _precision, _settings.increment).toFixed(
-            _settings.precision
-        )
-    },
-
-    /**
-     * Value for JSON serialization.
-     * @returns {float}
-     */
-    toJSON() {
-        return this.value
-    },
+class EventCustom implements  IEvent {
+  type:string
+  timeStamp: Date
+  constructor(type: string) {
+    this.type = type;
+    this.timeStamp = new Date();
+  }  
 }
-
-export default currency

@@ -2,9 +2,12 @@
   "compilerOptions": {
     "target": "es5",
     "lib": [
-      "esnext",
-      "dom"
+      "ES6",
+      "DOM"
     ],
-    "strict": true
+    "strict": true,
+    "allowJs": true,
+    "outDir": "build"
+
   }
 }
